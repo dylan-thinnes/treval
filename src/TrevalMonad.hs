@@ -13,24 +13,43 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module TrevalMonad where
 
+import TrevalTH
+
 import Control.Lens
 import Control.Lens.Internal.Zoom
+
 import Control.Monad.State.Class hiding (lift)
 import Control.Monad.State.Strict hiding (lift)
+import Control.Monad.RWS.Strict
+
 import Data.Functor.Foldable
 import Data.Functor.Foldable.TH
+
 import "template-haskell" Language.Haskell.TH
 import "template-haskell" Language.Haskell.TH.Syntax (lift)
-import TrevalTH
+
 import Data.Functor.Identity
-import Debug.Trace
 import Data.Functor.Compose
+
+import Debug.Trace
 
 -- A version of Exp/ExpF that also can have "holes" for arbitrary string expressions
 -- This will be used for reporting
 type HoledF = Compose (Either String) ExpF
 type Holed = Fix HoledF
 
+-- A RWS monad with a "commit" that can save the current state to the trace
+type TracingStateT s m a = RWST () [s] s m a
+
+commit :: (Monad m) => TracingStateT s m ()
+commit = get >>= tell . pure
+
+runTracing :: TracingStateT s m a -> s -> m (a, s, [s])
+runTracing t = runRWST t ()
+
+type TracingState s a = TracingStateT s Identity a
+
+{-
 -- A State monad with a "commit" that can save the current state to a trace
 newtype TracingStateT s m a = TracingStateT (StateT ([s], s) m a)
     deriving (Functor, Applicative, Monad)
@@ -57,6 +76,7 @@ runTracing :: TracingStateT s Identity a -> s -> (a, [s], s)
 runTracing (TracingStateT m) initial = runIdentity $ do
     (a, (trace, s)) <- runStateT m ([], initial)
     return (a, trace, s)
+-}
 
 -- Function for checking whether a type has a Show instance
 isShowable :: Type -> Q Bool
@@ -85,27 +105,21 @@ tracer = fmap snd . Data.Functor.Foldable.para f
             let original = orig x
             (funExprLifted, funExpr) <- funExprQ
             (argExprLifted, argExpr) <- argExprQ
-            sequence $ (Yes,
+            fmap (Yes,) $
                   [| do
                     put original
                     commit
-                    fun <- do
-                             let (f, log, _) = runTracing $(if funExprLifted == Yes then pure funExpr else pure funExpr) funExprOrig
-                             flip mapM log $ \s -> do
-                                 modify $ _AppE . _1 .~ s
-                                 commit
-                             pure f
-                    arg <- $(pure argExpr)
-                    let result = fun arg
-                    pure result
-                  |])
+                    fun <- zoom (_AppE . _1) $(return funExpr)
+                    arg <- zoom (_AppE . _2) $(return argExpr)
+                    let result = fun <*> arg
+                    return result
+                  |]
     f x@(VarEF name) = reify name >>= \case
             (VarI _ _type _)
               -> isShowable _type >>= \(traceShowId -> isShowable) ->
                     let original = orig x
                      in if isShowable
-                        then sequence 
-                             $ (Yes,
+                        then fmap (Yes,)
                                [| do
                                       put original
                                       commit
@@ -113,8 +127,8 @@ tracer = fmap snd . Data.Functor.Foldable.para f
                                       put $ LitE $ StringL $ show result
                                       commit
                                       pure result
-                               |])
-                        else sequence (Yes, [| pure $(pure original) |])
+                               |]
+                        else fmap (Yes,) [| pure $(pure original) |]
             _
               -> fmap ((Unsure,) . embed) $ sequence $ fmap (fmap snd . snd) x
     f x = unsure x
