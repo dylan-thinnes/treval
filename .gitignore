@@ -1,3 +1,5 @@
 .stack-work/
 treval.cabal
 *~
+.*.swp
+*.swp
