@@ -20,7 +20,7 @@ import Control.Lens.Internal.Zoom
 
 import Control.Monad.State.Class hiding (lift)
 import Control.Monad.State.Strict hiding (lift)
-import Control.Monad.RWS.Strict
+import Control.Monad.RWS.Strict hiding (lift)
 
 import Data.Functor.Foldable
 import Data.Functor.Foldable.TH
