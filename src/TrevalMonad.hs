@@ -137,9 +137,9 @@ tracer = fmap snd . Data.Functor.Foldable.para f
                                       let result = $(pure original)
                                       put $ LitE $ StringL $ show result
                                       commit
-                                      pure result
+                                      pure $ First $ Just result
                                |]
-                        else fmap (Yes,) [| pure $(pure original) |]
+                        else fmap (Yes,) [| pure $ First $ Just $(pure original) |]
             _
               -> fmap ((Unsure,) . embed) $ sequence $ fmap (fmap snd . snd) x
     f x = unsure x
