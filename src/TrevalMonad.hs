@@ -44,8 +44,11 @@ type TracingStateT s m a = RWST () [s] s m a
 commit :: (Monad m) => TracingStateT s m ()
 commit = get >>= tell . pure
 
-runTracing :: TracingStateT s m a -> s -> m (a, s, [s])
-runTracing t = runRWST t ()
+runTracingT :: TracingStateT s m a -> s -> m (a, s, [s])
+runTracingT t = runRWST t ()
+
+runTracing :: TracingStateT s Identity a -> s -> (a, s, [s])
+runTracing t = runIdentity . runTracingT t
 
 type TracingState s a = TracingStateT s Identity a
 
