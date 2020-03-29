@@ -127,19 +127,14 @@ tracer = fmap snd . Data.Functor.Foldable.para f
                   |]
     f x@(VarEF name) = reify name >>= \case
             (VarI _ _type _)
-              -> isShowable _type >>= \(traceShowId -> isShowable) ->
-                    let original = orig x
-                     in if isShowable
-                        then fmap (Yes,)
-                               [| do
-                                      put original
-                                      commit
-                                      let result = $(pure original)
-                                      put $ LitE $ StringL $ show result
-                                      commit
-                                      return $ First $ Just result
-                               |]
-                        else fmap (Yes,) [| return $ First $ Just $(pure original) |]
+              -> let original = orig x
+                  in fmap (Yes,)
+                          [| do
+                                put original
+                                commit
+                                let result = $(pure original)
+                                return $ First $ Just result
+                          |]
             _
               -> fmap ((Unsure,) . embed) $ sequence $ fmap (fmap snd . snd) x
     f x = unsure x
