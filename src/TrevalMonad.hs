@@ -34,7 +34,7 @@ import Data.Functor.Compose
 import Debug.Trace
 
 -- A version of Exp/ExpF that also can have "holes" for arbitrary string expressions
--- This will be used for reporting
+-- This will be used for reporting later, for now we wrap shown values in LitE
 type HoledF = Compose (Either String) ExpF
 type Holed = Fix HoledF
 
