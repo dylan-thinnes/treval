@@ -98,7 +98,6 @@ tracer = fmap snd . Data.Functor.Foldable.para f
            . sequence 
            . fmap (fmap snd . snd)
 
-
     orig :: ExpF (Exp, a) -> Exp
     orig x = embed (fst <$> x)
 
@@ -147,6 +146,4 @@ x :: Int
 x = 3
 y :: Int
 y = 2
---traceF = $(tracer =<< [| f 1 2 |])
-
 
