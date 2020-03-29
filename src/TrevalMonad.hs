@@ -110,12 +110,20 @@ tracer = fmap snd . Data.Functor.Foldable.para f
             (argExprLifted, argExpr) <- argExprQ
             fmap (Yes,) $
                   [| do
-                    put original
-                    commit
-                    fun <- zoom (_AppE . _1) $(return funExpr)
-                    arg <- zoom (_AppE . _2) $(return argExpr)
-                    let result = fun <*> arg
-                    return result
+                        put original
+                        commit
+                        fun <- do
+                            state <- get
+                            censor (map $ \substate -> _AppE . _1 .~ substate $ state)
+                                $ zoom (_AppE . _1)
+                                $ $(return funExpr)
+                        arg <- do
+                            state <- get
+                            censor (map $ \substate -> _AppE . _2 .~ substate $ state)
+                                $ zoom (_AppE . _2)
+                                $ $(return argExpr)
+                        let result = fun <*> arg
+                        return result
                   |]
     f x@(VarEF name) = reify name >>= \case
             (VarI _ _type _)
