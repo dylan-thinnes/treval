@@ -1,4 +1,6 @@
 {-# LANGUAGE PackageImports #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TupleSections #-}
@@ -19,8 +21,8 @@ import Control.Lens
 import Control.Lens.Internal.Zoom
 
 import Control.Monad.State.Class hiding (lift)
-import Control.Monad.State.Strict hiding (lift)
-import Control.Monad.RWS.Strict hiding (lift)
+import Control.Monad.State.Lazy hiding (lift)
+import Control.Monad.RWS.Lazy hiding (lift)
 
 import Data.Functor.Foldable
 import Data.Functor.Foldable.TH
@@ -31,12 +33,17 @@ import "template-haskell" Language.Haskell.TH.Syntax (lift)
 import Data.Functor.Identity
 import Data.Functor.Compose
 
+import Data.List (isPrefixOf)
+
 import Debug.Trace
 
 -- A version of Exp/ExpF that also can have "holes" for arbitrary string expressions
 -- This will be used for reporting later, for now we wrap shown values in LitE
 type HoledF = Compose (Either String) ExpF
 type Holed = Fix HoledF
+
+toHoled :: Exp -> Holed
+toHoled = hoist (Compose . Right)
 
 -- A RWS monad with a "commit" that can save the current state to the trace
 type TracingStateT s m a = RWST () [s] s m a
@@ -49,6 +56,9 @@ runTracingT t = runRWST t ()
 
 runTracing :: TracingStateT s Identity a -> s -> (a, s, [s])
 runTracing t = runIdentity . runTracingT t
+
+getLog :: (a, b, c) -> c
+getLog (_,_,log) = log
 
 type TracingState s a = TracingStateT s Identity a
 
@@ -89,6 +99,17 @@ isShowable t = isInstance ''Show [traceShowId $ t]
 data Lifted = Yes | No | Unsure
     deriving (Show, Eq, Ord)
 
+-- zoomWithWriter :: LensLike
+--zoomWithWriter :: (Zoom m n s t, Applicative f) => LensLike' f t s -> m c -> n c
+--zoomWithTrace :: (MonadState s m, MonadWriter [s] m, Zoom m m s s, Applicative (Zoomed m c))
+--              => Traversal' s s -> m c -> m c
+zoomWithTrace :: (Monoid c) => Traversal' Exp Exp -> TracingState Exp c -> TracingState Exp c
+zoomWithTrace lens m = do
+    state <- get
+    censor (map $ \substate -> lens .~ substate $ state)
+        $ zoom lens
+        $ m
+
 -- Turns computations into traces
 tracer :: Exp -> Q Exp
 tracer = fmap snd . Data.Functor.Foldable.para f
@@ -111,16 +132,8 @@ tracer = fmap snd . Data.Functor.Foldable.para f
                   [| do
                         put original
                         commit
-                        fun <- do
-                            state <- get
-                            censor (map $ \substate -> _AppE . _1 .~ substate $ state)
-                                $ zoom (_AppE . _1)
-                                $ $(return funExpr)
-                        arg <- do
-                            state <- get
-                            censor (map $ \substate -> _AppE . _2 .~ substate $ state)
-                                $ zoom (_AppE . _2)
-                                $ $(return argExpr)
+                        fun <- zoomWithTrace (_AppE . _1) $(return funExpr)
+                        arg <- zoomWithTrace (_AppE . _2) $(return argExpr)
                         let result = fun <*> arg
                         return result
                   |]
@@ -138,12 +151,38 @@ tracer = fmap snd . Data.Functor.Foldable.para f
               -> fmap ((Unsure,) . embed) $ sequence $ fmap (fmap snd . snd) x
     f x = unsure x
 
--- testing
-f = (pure :: a -> TracingState Exp a) ((+) :: Int -> Int -> Int)
-g :: Int -> Int -> Int
-g = (*)
-x :: Int
-x = 3
-y :: Int
-y = 2
+seqExp :: Monad m => ExpF (m Exp) -> m Exp
+seqExp x = embed <$> sequence x
 
+annResult :: Exp -> Q Exp
+annResult = cata f
+    where
+    f :: ExpF (Q Exp) -> Q Exp
+    f x@(DoEF stmts) = DoE <$> mapM g stmts
+    f x = seqExp x
+
+    g :: Stmt -> Q Stmt
+    g x@(LetS decs) = LetS <$> mapM h decs
+    g x = pure x
+
+    h :: Dec -> Q Dec
+    h x@(ValD (VarP name) _ _) = do
+        traceShow name $ pure ()
+        reify name >>= \case
+            (VarI _ _type _) -> traceShow _type $ pure ()
+            _                ->                   pure ()
+        pure x
+    h x = pure x
+
+-- testing
+--f = (pure :: a -> TracingState Exp a) ((+) :: Int -> Int -> Int)
+--g :: Int -> Int -> Int
+--g = (*)
+--x :: Int
+--x = 3
+--y :: Int
+--y = 2
+
+--sample :: Exp -> TracingState Exp a
+--sample = do
+--
