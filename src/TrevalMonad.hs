@@ -103,7 +103,7 @@ data Lifted = Yes | No | Unsure
 --zoomWithWriter :: (Zoom m n s t, Applicative f) => LensLike' f t s -> m c -> n c
 --zoomWithTrace :: (MonadState s m, MonadWriter [s] m, Zoom m m s s, Applicative (Zoomed m c))
 --              => Traversal' s s -> m c -> m c
-zoomWithTrace :: (Monoid c) => Traversal' Exp Exp -> TracingState Exp c -> TracingState Exp c
+zoomWithTrace :: (Monoid c, Monad m) => Traversal' Exp Exp -> TracingStateT Exp m c -> TracingStateT Exp m c
 zoomWithTrace lens m = do
     state <- get
     censor (map $ \substate -> lens .~ substate $ state)
